@@ -2,14 +2,14 @@
 <html lang="zh-TW">
 <head>
     <meta charset="UTF-8">
-    <title>AI 採購校對系統 - 安全無外洩版</title>
+    <title>AI 採購校對系統 - 透明儀表板版</title>
     <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
     <style>
         body { font-family: 'Segoe UI', system-ui, sans-serif; background: #f8fafc; padding: 20px; color: #1e293b; }
         .container { max-width: 950px; margin: auto; background: white; padding: 35px; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.08); }
         h1 { color: #2563eb; text-align: center; margin-bottom: 20px; }
         
-        /* 🔑 金鑰輸入區的設計 */
+        /* 🔑 金鑰輸入區 */
         .key-box { background: #eff6ff; padding: 15px; border-radius: 12px; border: 1px solid #bfdbfe; margin-bottom: 25px; display: flex; gap: 10px; align-items: center; }
         .key-box input { flex: 1; padding: 10px; border: 1px solid #93c5fd; border-radius: 8px; font-family: monospace; outline: none; }
         .key-box button { background: #3b82f6; color: white; border: none; padding: 10px 15px; border-radius: 8px; cursor: pointer; font-weight: bold; white-space: nowrap; }
@@ -20,6 +20,9 @@
         .btn-ai { background: #2563eb; }
         .btn-excel { background: #10b981; }
         .btn-main:disabled { background: #94a3b8; cursor: not-allowed; }
+        
+        /* 🟢 模型狀態標籤 */
+        #modelBadge { background: #dcfce7; color: #166534; padding: 10px 15px; border-radius: 8px; font-size: 14px; font-weight: bold; display: none; margin-bottom: 15px; border: 1px solid #bbf7d0; text-align: center; }
         
         #debugLog { background: #fff1f2; border: 1px solid #fda4af; color: #be123c; padding: 15px; border-radius: 10px; font-size: 13px; display: none; margin-bottom: 20px; word-break: break-all; }
         table { width: 100%; border-collapse: separate; border-spacing: 0; margin-top: 20px; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; }
@@ -36,7 +39,7 @@
     
     <div class="key-box">
         <label><b>設定 API Key：</b></label>
-        <input type="password" id="apiKeyInput" placeholder="請貼上您的 Google Gemini API Key (AIza...)">
+        <input type="password" id="apiKeyInput" placeholder="請貼上您的 Google Gemini API Key">
         <button onclick="saveKey()">💾 儲存金鑰</button>
     </div>
 
@@ -47,7 +50,10 @@
         <button id="exBtn" class="btn-main btn-excel" onclick="exportExcel()" disabled>2. 匯出 Excel</button>
     </div>
     
-    <div id="loading">🚀 AI 正在辨識中...</div>
+    <div id="loading">🚀 準備就緒...</div>
+    
+    <div id="modelBadge"></div>
+    
     <div id="debugLog"></div>
     
     <table id="resTable">
@@ -61,27 +67,24 @@
 <script>
     let finalData = [];
     const colorPalette = ["#FFD1DC", "#D1EAFF", "#D1FFD7", "#FFF4D1", "#EAD1FF"];
+    // 💡 三個備選模型
+    const modelsToTry = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-pro"];
 
-    // 網頁載入時，自動從瀏覽器記憶中讀取金鑰
     window.onload = function() {
         const savedKey = localStorage.getItem("gemini_api_key");
-        if (savedKey) {
-            document.getElementById("apiKeyInput").value = savedKey;
-        }
+        if (savedKey) document.getElementById("apiKeyInput").value = savedKey;
     };
 
     function saveKey() {
         const key = document.getElementById("apiKeyInput").value.trim();
         if (!key) return alert("請先輸入金鑰！");
         localStorage.setItem("gemini_api_key", key);
-        alert("✅ 金鑰已安全儲存於您的瀏覽器中！");
+        alert("✅ 金鑰已安全儲存！");
     }
 
     async function startAI() {
         const apiKey = document.getElementById("apiKeyInput").value.trim();
-        if (!apiKey) {
-            return alert("❌ 找不到 API Key！請先在上方輸入框貼上金鑰並儲存。");
-        }
+        if (!apiKey) return alert("❌ 找不到 API Key！請先貼上並儲存。");
 
         const text = document.getElementById('inputArea').innerText;
         if (!text.trim()) return alert("請輸入對話內容");
@@ -89,52 +92,72 @@
         const btn = document.getElementById('runBtn');
         const load = document.getElementById('loading');
         const debug = document.getElementById('debugLog');
+        const badge = document.getElementById('modelBadge');
         
         btn.disabled = true;
-        load.style.display = 'block';
         debug.style.display = 'none';
+        badge.style.display = 'none'; // 每次執行前先隱藏標籤
+        let success = false;
+        let lastError = "";
 
-        // 使用最穩定的 v1beta + gemini-1.5-flash
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
-
-        try {
-            const response = await fetch(url, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    contents: [{
-                        parts: [{
-                            text: `任務：提取對話中的商品編號(XXXXXX-XXXXXXXXX)與正確數量。理解「改為」等語意。回傳純JSON陣列：[{"no":"","qty":0,"txt":""}]。對話：${text}`
-                        }]
-                    }]
-                })
-            });
-
-            const data = await response.json();
+        // 🔄 自動尋徑系統啟動
+        for (let model of modelsToTry) {
+            if (success) break;
             
-            if (!response.ok) {
-                throw new Error(data.error ? data.error.message : JSON.stringify(data));
+            try {
+                load.style.display = 'block';
+                load.innerText = `🚀 正在嘗試連線模型：${model}...`;
+                
+                const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        contents: [{
+                            parts: [{
+                                text: `任務：提取對話中的商品編號(XXXXXX-XXXXXXXXX)與正確數量。理解「改為」等語意。回傳純JSON陣列：[{"no":"","qty":0,"txt":""}]。對話：${text}`
+                            }]
+                        }]
+                    })
+                });
+
+                const data = await response.json();
+                
+                if (!response.ok) {
+                    throw new Error(data.error ? data.error.message : JSON.stringify(data));
+                }
+
+                // 成功抓到資料！
+                const aiRaw = data.candidates[0].content.parts[0].text.replace(/```json|```/g, '').trim();
+                const results = JSON.parse(aiRaw);
+
+                finalData = results.map((item, i) => {
+                    let sku = item.no.trim();
+                    if (sku.includes('-') && sku.split('-').length === 2) sku += "-000";
+                    return { sku, qty: item.qty, txt: item.txt, color: colorPalette[i % colorPalette.length] };
+                });
+
+                renderTable(text);
+                document.getElementById('exBtn').disabled = false;
+                success = true; // 標記成功
+
+                // 🟢 顯示目前正在使用的模型
+                badge.innerHTML = `✅ 成功連線模型：<b>${model}</b>`;
+                badge.style.display = 'block';
+
+            } catch (e) {
+                console.warn(`模型 ${model} 失敗跳過:`, e.message);
+                lastError = e.message;
             }
-
-            const aiRaw = data.candidates[0].content.parts[0].text.replace(/```json|```/g, '').trim();
-            const results = JSON.parse(aiRaw);
-
-            finalData = results.map((item, i) => {
-                let sku = item.no.trim();
-                if (sku.includes('-') && sku.split('-').length === 2) sku += "-000";
-                return { sku, qty: item.qty, txt: item.txt, color: colorPalette[i % colorPalette.length] };
-            });
-
-            renderTable(text);
-            document.getElementById('exBtn').disabled = false;
-
-        } catch (e) {
-            debug.innerHTML = `<b>❌ AI 報錯詳情：</b><br>${e.message}`;
-            debug.style.display = 'block';
-        } finally {
-            load.style.display = 'none';
-            btn.disabled = false;
         }
+
+        if (!success) {
+            debug.innerHTML = `<b>❌ 所有模型皆無回應，最終報錯：</b><br>${lastError}`;
+            debug.style.display = 'block';
+        }
+
+        load.style.display = 'none';
+        btn.disabled = false;
     }
 
     function renderTable(raw) {
