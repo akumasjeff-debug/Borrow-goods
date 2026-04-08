@@ -2,17 +2,17 @@
 <html lang="zh-TW">
 <head>
     <meta charset="UTF-8">
-    <title>AI 採購校對 - 深度診斷版</title>
+    <title>AI 採購校對 - 通電診斷版</title>
     <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
     <style>
         body { font-family: sans-serif; background: #f1f5f9; padding: 20px; }
         .container { max-width: 900px; margin: auto; background: white; padding: 30px; border-radius: 15px; box-shadow: 0 5px 15px rgba(0,0,0,0.1); }
-        #inputArea { width: 100%; min-height: 250px; padding: 15px; border: 2px solid #cbd5e1; border-radius: 10px; font-size: 16px; outline: none; white-space: pre-wrap; background: #fff; box-sizing: border-box; }
+        #inputArea { width: 100%; min-height: 200px; padding: 15px; border: 2px solid #cbd5e1; border-radius: 10px; font-size: 16px; outline: none; white-space: pre-wrap; background: #fff; box-sizing: border-box; }
         .btn-group { display: flex; gap: 10px; margin: 20px 0; }
         button { flex: 1; padding: 15px; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; color: white; }
         .btn-ai { background: #2563eb; }
-        .btn-xls { background: #10b981; }
-        #debugLog { background: #fef2f2; border: 1px solid #fee2e2; color: #dc2626; padding: 15px; border-radius: 8px; font-size: 13px; display: none; margin-bottom: 20px; word-break: break-all; }
+        /* 🔴 內建診斷顯示 */
+        #debugLog { background: #fff1f2; border: 1px solid #fda4af; color: #be123c; padding: 15px; border-radius: 8px; font-size: 13px; display: none; margin-bottom: 20px; word-break: break-all; font-family: monospace; }
         table { width: 100%; border-collapse: collapse; margin-top: 20px; }
         th, td { border: 1px solid #e2e8f0; padding: 12px; text-align: left; }
         th { background: #f8fafc; }
@@ -22,30 +22,34 @@
 <body>
 
 <div class="container">
-    <h1>🎨 採購資料 AI 智慧校對 (深度診斷版)</h1>
+    <h1>🎨 採購資料 AI 智慧校對 (監控通電版)</h1>
     
     <div id="inputArea" contenteditable="true" placeholder="在此貼入對話內容..."></div>
     
     <div class="btn-group">
-        <button id="runBtn" class="btn-ai" onclick="diagnoseAI()">1. 執行 AI 診斷辨識</button>
-        <button id="exBtn" class="btn-xls" onclick="exportExcel()" disabled>2. 匯出 Excel</button>
+        <button id="runBtn" class="btn-ai" onclick="runAI()">啟動 AI 辨識</button>
+        <button id="exBtn" style="background:#10b981" onclick="exportExcel()" disabled>匯出 Excel</button>
     </div>
 
     <div id="debugLog"></div>
 
     <table id="resTable">
-        <thead><tr><th>商品編號</th><th>數量</th><th>來源參考</th></tr></thead>
+        <thead><tr><th>商品編號 (補齊後)</th><th>數量</th><th>來源參考</th></tr></thead>
         <tbody id="resBody"></tbody>
     </table>
 </div>
 
 <script>
+    /**
+     * 重要：請確認此 Key 是否與 AI Studio 中顯示的一致
+     * 如果監控沒流量，請嘗試在 Google Cloud 憑證頁面建立一把全新的「API 金鑰」
+     */
     const API_KEY = "AIzaSyDak1zCKIkYEZKgysE2DKMhgoll-mkLuYg";
 
     let finalData = [];
     const colors = ["#FFD1DC", "#D1EAFF", "#D1FFD7", "#FFF4D1", "#EAD1FF"];
 
-    async function diagnoseAI() {
+    async function runAI() {
         const text = document.getElementById('inputArea').innerText;
         if (!text.trim()) return alert("請輸入內容");
 
@@ -54,25 +58,25 @@
         debug.style.display = "none";
         btn.disabled = true;
 
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${API_KEY}`;
+        // 使用 v1 穩定路徑，確保不被 beta 測試擋掉
+        const url = `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${API_KEY}`;
 
         try {
             const response = await fetch(url, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    contents: [{ parts: [{ text: `提取商品編號(XXXXXX-XXXXXXXXX)與數量，回傳JSON陣列:[{"no":"","qty":0,"txt":""}]。對話：${text}` }] }]
+                    contents: [{ parts: [{ text: `提取商品編號(格式XXXXXX-XXXXXXXXX)與數量，以JSON回傳:[{"no":"","qty":0,"txt":""}]。對話：${text}` }] }]
                 })
             });
 
             const data = await response.json();
 
             if (!response.ok) {
-                // 🔴 這裡會抓到 Google 具體的拒絕理由
-                console.error("API Error Detailed:", data);
-                debug.innerHTML = `<b>❌ AI 辨識失敗！詳細報錯資訊：</b><br>${JSON.stringify(data)}`;
+                // 🔴 這裡會直接列出為什麼請求沒到達監控
+                debug.innerHTML = `<b>❌ API 通訊失敗！</b><br>狀態碼: ${response.status}<br>訊息: ${JSON.stringify(data)}`;
                 debug.style.display = "block";
-                throw new Error(data.error ? data.error.message : "未知錯誤");
+                throw new Error("API 報錯");
             }
 
             const aiText = data.candidates[0].content.parts[0].text.replace(/```json|```/g, '').trim();
@@ -87,7 +91,10 @@
 
         } catch (e) {
             console.error(e);
-            alert("連線發生問題，請查看下方的紅框訊息！");
+            if (!debug.style.display || debug.style.display === "none") {
+                debug.innerHTML = "❌ 連線異常，請確認網路或 Key 限制設定。";
+                debug.style.display = "block";
+            }
         } finally {
             btn.disabled = false;
         }
