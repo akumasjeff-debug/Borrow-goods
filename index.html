@@ -2,7 +2,7 @@
 <html lang="zh-TW">
 <head>
     <meta charset="UTF-8">
-    <title>AI 採購校對系統 - 完美匯出版</title>
+    <title>AI 採購校對系統 - 功能全復原版</title>
     <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
     <style>
         body { font-family: 'Segoe UI', system-ui, sans-serif; background: #f8fafc; padding: 20px; color: #1e293b; }
@@ -62,6 +62,7 @@
 <script>
     let finalData = [];
     const colorPalette = ["#FFD1DC", "#D1EAFF", "#D1FFD7", "#FFF4D1", "#EAD1FF"];
+    const modelsToTry = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-pro"];
 
     window.onload = function() {
         const savedKey = localStorage.getItem("gemini_api_key");
@@ -92,7 +93,6 @@
         badge.style.display = 'none';
         
         try {
-            // 1. 雷達掃描可用模型
             load.style.display = 'block';
             load.innerText = "🔍 正在向 Google 查詢可用模型清單...";
             
@@ -107,7 +107,6 @@
             
             if (availableModels.length === 0) throw new Error("您的金鑰沒有分配到任何可用的對話模型。");
 
-            // 優先嘗試 flash 模型
             availableModels.sort((a, b) => {
                 if (a.includes("flash") && !b.includes("flash")) return -1;
                 if (!a.includes("flash") && b.includes("flash")) return 1;
@@ -117,7 +116,6 @@
             let success = false;
             let lastError = "";
 
-            // 2. 自動切換車道抗塞車
             for (let targetModel of availableModels) {
                 if (success) break;
                 
@@ -154,11 +152,12 @@
                         return { sku, qty: item.qty || 1, txt: item.txt || "", color: colorPalette[i % colorPalette.length] };
                     });
 
+                    // 💡 注意：這裡把原始文字 text 傳進去
                     renderTable(text);
                     document.getElementById('exBtn').disabled = false;
                     success = true;
                     
-                    badge.innerHTML = `✅ 雷達掃描成功！系統已自動選用模型：<b>${targetModel}</b>`;
+                    badge.innerHTML = `✅ 成功選用模型：<b>${targetModel}</b>`;
                     badge.style.background = "#dcfce7";
                     badge.style.color = "#166534";
 
@@ -176,7 +175,7 @@
             }
 
         } catch (e) {
-            debug.innerHTML = `<b>❌ 最終報錯詳情：</b><br>${e.message}<br><br>💡 如果顯示 high demand (需求過高)，請等待幾秒鐘後再次點擊按鈕。`;
+            debug.innerHTML = `<b>❌ 最終報錯詳情：</b><br>${e.message}`;
             debug.style.display = 'block';
             console.error(e);
         } finally {
@@ -185,32 +184,40 @@
         }
     }
 
+    // 💡 修正：把標註底色的功能改回來
     function renderTable(raw) {
         const tbody = document.getElementById('resBody');
         const area = document.getElementById('inputArea');
         tbody.innerHTML = "";
-        let html = raw;
+        let html = raw; // 從原始文字開始替換
 
         finalData.forEach(item => {
+            // 1. 填充表格
             tbody.innerHTML += `<tr style="background:${item.color}"><td><b>${item.sku}</b></td><td>${item.qty}</td><td style="font-size:12px;color:#666">${item.txt}</td></tr>`;
+            
+            // 2. 標註輸入框底色 (把這段功能拿回來了)
             if (item.txt) {
-                const reg = new RegExp(`(${item.txt.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, "g");
-                html = html.replace(reg, `<mark style="background:${item.color}">$1</mark>`);
+                // 逃脫正規表示式特殊字元
+                const escaped = item.txt.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                // 全域替換
+                const reg = new RegExp(`(${escaped})`, "g");
+                html = html.replace(reg, `<mark style="background:${item.color}">${escaped}</mark>`);
             }
         });
+
+        // 3. 將帶有標註的 HTML 放回輸入框
         area.innerHTML = html;
     }
 
-    // 💡 匯出 Excel：第三欄位固定為「採購進貨成本」且為空值
     function exportExcel() {
         const ws = XLSX.utils.json_to_sheet(finalData.map(d => ({
             "商品編號": d.sku, 
             "數量": d.qty,
-            "採購進貨成本": ""  // 留下空白讓你可以直接填寫
+            "採購進貨成本": "" 
         })));
         const wb = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(wb, ws, "採購校對結果");
-        XLSX.writeFile(wb, "採購單_AI校對匯出.xlsx");
+        XLSX.writeFile(wb, "採購單_AI智慧校對匯出.xlsx");
     }
 </script>
 </body>
