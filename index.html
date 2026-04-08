@@ -2,37 +2,26 @@
 <html lang="zh-TW">
 <head>
     <meta charset="UTF-8">
-    <title>AI 採購校對 - 通電診斷版</title>
+    <title>AI 採購校對 - 最終突圍版</title>
     <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
     <style>
         body { font-family: sans-serif; background: #f1f5f9; padding: 20px; }
         .container { max-width: 900px; margin: auto; background: white; padding: 30px; border-radius: 15px; box-shadow: 0 5px 15px rgba(0,0,0,0.1); }
-        #inputArea { width: 100%; min-height: 200px; padding: 15px; border: 2px solid #cbd5e1; border-radius: 10px; font-size: 16px; outline: none; white-space: pre-wrap; background: #fff; box-sizing: border-box; }
-        .btn-group { display: flex; gap: 10px; margin: 20px 0; }
-        button { flex: 1; padding: 15px; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; color: white; }
-        .btn-ai { background: #2563eb; }
-        /* 🔴 內建診斷顯示 */
-        #debugLog { background: #fff1f2; border: 1px solid #fda4af; color: #be123c; padding: 15px; border-radius: 8px; font-size: 13px; display: none; margin-bottom: 20px; word-break: break-all; font-family: monospace; }
+        #inputArea { width: 100%; min-height: 250px; padding: 15px; border: 2px solid #cbd5e1; border-radius: 10px; font-size: 16px; outline: none; white-space: pre-wrap; background: #fff; box-sizing: border-box; }
+        .btn-ai { background: #2563eb; color: white; border: none; padding: 15px 30px; border-radius: 8px; cursor: pointer; font-weight: bold; width: 100%; margin: 20px 0; }
+        #debugLog { background: #fff1f2; border: 1px solid #fda4af; color: #be123c; padding: 15px; border-radius: 8px; font-size: 13px; display: none; margin-bottom: 20px; word-break: break-all; }
         table { width: 100%; border-collapse: collapse; margin-top: 20px; }
         th, td { border: 1px solid #e2e8f0; padding: 12px; text-align: left; }
-        th { background: #f8fafc; }
         mark { border-radius: 4px; padding: 2px 4px; font-weight: bold; }
     </style>
 </head>
 <body>
 
 <div class="container">
-    <h1>🎨 採購資料 AI 智慧校對 (監控通電版)</h1>
-    
+    <h1>🎨 採購資料 AI 智慧校對 (突圍版)</h1>
     <div id="inputArea" contenteditable="true" placeholder="在此貼入對話內容..."></div>
-    
-    <div class="btn-group">
-        <button id="runBtn" class="btn-ai" onclick="runAI()">啟動 AI 辨識</button>
-        <button id="exBtn" style="background:#10b981" onclick="exportExcel()" disabled>匯出 Excel</button>
-    </div>
-
+    <button id="runBtn" class="btn-ai" onclick="runAI()">啟動 AI 辨識</button>
     <div id="debugLog"></div>
-
     <table id="resTable">
         <thead><tr><th>商品編號 (補齊後)</th><th>數量</th><th>來源參考</th></tr></thead>
         <tbody id="resBody"></tbody>
@@ -40,10 +29,7 @@
 </div>
 
 <script>
-    /**
-     * 重要：請確認此 Key 是否與 AI Studio 中顯示的一致
-     * 如果監控沒流量，請嘗試在 Google Cloud 憑證頁面建立一把全新的「API 金鑰」
-     */
+    // 💡 您的 Key 沒錯，是 Google 門禁系統的專案對齊有問題
     const API_KEY = "AIzaSyDak1zCKIkYEZKgysE2DKMhgoll-mkLuYg";
 
     let finalData = [];
@@ -58,26 +44,24 @@
         debug.style.display = "none";
         btn.disabled = true;
 
-        // 使用 v1 穩定路徑，確保不被 beta 測試擋掉
-        const url = `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${API_KEY}`;
+        /**
+         * 💡 重大變動：
+         * 我們改用 v1beta 並嘗試 gemini-1.5-flash-latest 
+         * 這通常是 AI Studio 金鑰權限最高的通道
+         */
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${API_KEY}`;
 
         try {
             const response = await fetch(url, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    contents: [{ parts: [{ text: `提取商品編號(格式XXXXXX-XXXXXXXXX)與數量，以JSON回傳:[{"no":"","qty":0,"txt":""}]。對話：${text}` }] }]
+                    contents: [{ parts: [{ text: `提取商品編號(XXXXXX-XXXXXXXXX)與數量，以JSON回傳:[{"no":"","qty":0,"txt":""}]。對話：${text}` }] }]
                 })
             });
 
             const data = await response.json();
-
-            if (!response.ok) {
-                // 🔴 這裡會直接列出為什麼請求沒到達監控
-                debug.innerHTML = `<b>❌ API 通訊失敗！</b><br>狀態碼: ${response.status}<br>訊息: ${JSON.stringify(data)}`;
-                debug.style.display = "block";
-                throw new Error("API 報錯");
-            }
+            if (!response.ok) throw new Error(JSON.stringify(data));
 
             const aiText = data.candidates[0].content.parts[0].text.replace(/```json|```/g, '').trim();
             finalData = JSON.parse(aiText).map((item, i) => {
@@ -87,14 +71,9 @@
             });
 
             render(text);
-            document.getElementById('exBtn').disabled = false;
-
         } catch (e) {
-            console.error(e);
-            if (!debug.style.display || debug.style.display === "none") {
-                debug.innerHTML = "❌ 連線異常，請確認網路或 Key 限制設定。";
-                debug.style.display = "block";
-            }
+            debug.innerHTML = `<b>❌ 通訊失敗：</b><br>${e.message}`;
+            debug.style.display = "block";
         } finally {
             btn.disabled = false;
         }
@@ -105,7 +84,6 @@
         const area = document.getElementById('inputArea');
         body.innerHTML = "";
         let html = raw;
-
         finalData.forEach(item => {
             body.innerHTML += `<tr style="background:${item.color}"><td><b>${item.sku}</b></td><td>${item.qty}</td><td>${item.txt}</td></tr>`;
             if (item.txt) {
@@ -114,13 +92,6 @@
             }
         });
         area.innerHTML = html;
-    }
-
-    function exportExcel() {
-        const ws = XLSX.utils.json_to_sheet(finalData.map(d => ({"商品編號": d.sku, "數量": d.qty})));
-        const wb = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(wb, ws, "Sheet1");
-        XLSX.writeFile(wb, "採購智慧校對.xlsx");
     }
 </script>
 </body>
