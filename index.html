@@ -2,34 +2,35 @@
 <html lang="zh-TW">
 <head>
     <meta charset="UTF-8">
-    <title>AI 採購校對 - 最終突圍版</title>
+    <title>AI 採購校對 - 額度解鎖版</title>
     <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
     <style>
         body { font-family: sans-serif; background: #f1f5f9; padding: 20px; }
         .container { max-width: 900px; margin: auto; background: white; padding: 30px; border-radius: 15px; box-shadow: 0 5px 15px rgba(0,0,0,0.1); }
-        #inputArea { width: 100%; min-height: 250px; padding: 15px; border: 2px solid #cbd5e1; border-radius: 10px; font-size: 16px; outline: none; white-space: pre-wrap; background: #fff; box-sizing: border-box; }
-        .btn-ai { background: #2563eb; color: white; border: none; padding: 15px 30px; border-radius: 8px; cursor: pointer; font-weight: bold; width: 100%; margin: 20px 0; }
+        #inputArea { width: 100%; min-height: 250px; padding: 15px; border: 2px solid #cbd5e1; border-radius: 10px; font-size: 16px; outline: none; white-space: pre-wrap; background: #fff; box-sizing: border-box; line-height: 1.6; }
+        .btn-ai { background: #2563eb; color: white; border: none; padding: 15px 30px; border-radius: 8px; cursor: pointer; font-weight: bold; width: 100%; margin: 20px 0; font-size: 18px; }
         #debugLog { background: #fff1f2; border: 1px solid #fda4af; color: #be123c; padding: 15px; border-radius: 8px; font-size: 13px; display: none; margin-bottom: 20px; word-break: break-all; }
         table { width: 100%; border-collapse: collapse; margin-top: 20px; }
         th, td { border: 1px solid #e2e8f0; padding: 12px; text-align: left; }
+        th { background: #f8fafc; }
         mark { border-radius: 4px; padding: 2px 4px; font-weight: bold; }
     </style>
 </head>
 <body>
 
 <div class="container">
-    <h1>🎨 採購資料 AI 智慧校對 (突圍版)</h1>
+    <h1>🎨 採購資料 AI 智慧校對 (額度解鎖版)</h1>
     <div id="inputArea" contenteditable="true" placeholder="在此貼入對話內容..."></div>
     <button id="runBtn" class="btn-ai" onclick="runAI()">啟動 AI 辨識</button>
     <div id="debugLog"></div>
     <table id="resTable">
-        <thead><tr><th>商品編號 (補齊後)</th><th>數量</th><th>來源參考</th></tr></thead>
+        <thead><tr><th>商品編號 (補齊後)</th><th>數量</th><th>來源原文</th></tr></thead>
         <tbody id="resBody"></tbody>
     </table>
 </div>
 
 <script>
-    // 💡 您的 Key 沒錯，是 Google 門禁系統的專案對齊有問題
+    // 💡 請確保這是從 Google AI Studio (aistudio.google.com) 拿到的 Key
     const API_KEY = "AIzaSyDak1zCKIkYEZKgysE2DKMhgoll-mkLuYg";
 
     let finalData = [];
@@ -44,24 +45,23 @@
         debug.style.display = "none";
         btn.disabled = true;
 
-        /**
-         * 💡 重大變動：
-         * 我們改用 v1beta 並嘗試 gemini-1.5-flash-latest 
-         * 這通常是 AI Studio 金鑰權限最高的通道
-         */
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${API_KEY}`;
+        // 使用 v1beta 通道，這是 AI Studio 金鑰最通用的路徑
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${API_KEY}`;
 
         try {
             const response = await fetch(url, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    contents: [{ parts: [{ text: `提取商品編號(XXXXXX-XXXXXXXXX)與數量，以JSON回傳:[{"no":"","qty":0,"txt":""}]。對話：${text}` }] }]
+                    contents: [{ parts: [{ text: `你是一個採購助理。從對話中提取「商品編號(格式XXXXXX-XXXXXXXXX)」與「數量」。若有「改為」等字眼請抓最終數量。回傳純JSON格式：[{"no":"","qty":0,"txt":""}]。對話：${text}` }] }]
                 })
             });
 
             const data = await response.json();
-            if (!response.ok) throw new Error(JSON.stringify(data));
+            if (!response.ok) {
+                // 如果失敗，紅框會顯示具體的錯誤碼
+                throw new Error(JSON.stringify(data));
+            }
 
             const aiText = data.candidates[0].content.parts[0].text.replace(/```json|```/g, '').trim();
             finalData = JSON.parse(aiText).map((item, i) => {
@@ -72,8 +72,9 @@
 
             render(text);
         } catch (e) {
-            debug.innerHTML = `<b>❌ 通訊失敗：</b><br>${e.message}`;
+            debug.innerHTML = `<b>❌ 辨識失敗：</b><br>${e.message}`;
             debug.style.display = "block";
+            // 💡 提示：如果是 429 錯誤，代表免費額度用太快了；如果是 400/403，代表 Key 真的失效了。
         } finally {
             btn.disabled = false;
         }
