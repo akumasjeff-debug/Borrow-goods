@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <title>AI 借貨資料自動提取工具</title>
+    <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
+    <style>
+        body { font-family: 'PingFang TC', 'Microsoft JhengHei', sans-serif; background-color: #f4f7f9; padding: 20px; color: #333; }
+        .container { max-width: 900px; margin: 0 auto; background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); }
+        h1 { color: #1a73e8; text-align: center; margin-bottom: 25px; }
+        .config-section { background: #fff3cd; padding: 15px; border-radius: 8px; margin-bottom: 20px; border: 1px solid #ffeeba; }
+        textarea { width: 100%; height: 180px; padding: 12px; border: 1px solid #ddd; border-radius: 8px; font-size: 15px; box-sizing: border-box; transition: 0.3s; }
+        textarea:focus { border-color: #1a73e8; outline: none; box-shadow: 0 0 5px rgba(26,115,232,0.3); }
+        .btn-group { display: flex; gap: 10px; margin: 20px 0; }
+        button { flex: 1; padding: 12px; border: none; border-radius: 6px; cursor: pointer; font-size: 16px; font-weight: bold; transition: 0.2s; }
+        .btn-ai { background-color: #1a73e8; color: white; }
+        .btn-ai:hover { background-color: #1557b0; }
+        .btn-ai:disabled { background-color: #ccc; }
+        .btn-excel { background-color: #34a853; color: white; }
+        .btn-excel:hover { background-color: #2d8e47; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; background: white; }
+        th, td { border: 1px solid #eee; padding: 12px; text-align: left; }
+        th { background-color: #f8f9fa; color: #555; }
+        .loading { display: none; text-align: center; color: #1a73e8; font-weight: bold; margin: 10px 0; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>🤖 AI 借貨單提取助手</h1>
+
+    <div class="config-section">
+        <strong>🔑 設定：</strong> 
+        <input type="password" id="apiKey" placeholder="在此輸入 Gemini API Key" style="width: 300px; padding: 5px;">
+        <button onclick="saveKey()" style="width: auto; padding: 5px 10px; font-size: 12px; flex: none;">儲存於瀏覽器</button>
+        <small style="display: block; margin-top: 5px; color: #856404;">金鑰將儲存在您的電腦中，不會外傳。</small>
+    </div>
+
+    <p>請貼入對話內容：</p>
+    <textarea id="inputText" placeholder="範例：
+BR2602140005080
+DGCI5G-A900I2YOP-000
+Insta360 背包夾... 借貨數量改15"></textarea>
+
+    <div class="btn-group">
+        <button id="runBtn" class="btn-ai" onclick="startAI()">1. AI 智能解析</button>
+        <button class="btn-excel" onclick="exportToExcel()">2. 匯出 Excel</button>
+    </div>
+
+    <div id="loadingStatus" class="loading">AI 正在努力閱讀中... 請稍候...</div>
+
+    <table id="resultTable">
+        <thead>
+            <tr>
+                <th>BR 單號</th>
+                <th>DG 料號</th>
+                <th>產品名稱</th>
+                <th>數量</th>
+            </tr>
+        </thead>
+        <tbody id="tableBody">
+            </tbody>
+    </table>
+</div>
+
+<script>
+    let extractedData = [];
+
+    // 頁面載入時檢查是否有儲存過的 Key
+    window.onload = () => {
+        const savedKey = localStorage.getItem('my_gemini_key');
+        if (savedKey) document.getElementById('apiKey').value = savedKey;
+    };
+
+    function saveKey() {
+        const key = document.getElementById('apiKey').value;
+        if (!key) return alert("請輸入 Key");
+        localStorage.setItem('my_gemini_key', key);
+        alert("金鑰已安全儲存！");
+    }
+
+    async function startAI() {
+        const key = document.getElementById('apiKey').value || localStorage.getItem('my_gemini_key');
+        const text = document.getElementById('inputText').value;
+
+        if (!key) return alert("請先設定 API Key！");
+        if (!text) return alert("請輸入對話內容！");
+
+        const btn = document.getElementById('runBtn');
+        const loader = document.getElementById('loadingStatus');
+
+        btn.disabled = true;
+        loader.style.display = 'block';
+
+        const prompt = `
+            你是一個專業的資料提取助手。請從以下對話內容中提取借貨資料。
+            規則：
+            1. 尋找 BR 開頭的單號。
+            2. 尋找 DG 開頭的料號。
+            3. 提取產品的名稱。
+            4. 提取「數量」，若提到「改為 15」或「數量 5」，請提取該數字。
+
+            請只回傳純 JSON 陣列格式，不要任何解釋文字。
+            格式範例：[{"br":"...","dg":"...","name":"...","qty":15}]
+
+            對話內容：
+            ${text}
+        `;
+
+        try {
+            const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${key}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    contents: [{ parts: [{ text: prompt }] }]
+                })
+            });
+
+            const result = await response.json();
+            const aiText = result.candidates[0].content.parts[0].text;
+            
+            // 去除 AI 可能產生的 Markdown 標籤
+            const cleanJson = aiText.replace(/```json|```/g, '').trim();
+            extractedData = JSON.parse(cleanJson);
+
+            renderTable(extractedData);
+        } catch (error) {
+            console.error(error);
+            alert("解析失敗，請確認 API Key 是否正確或網路是否通暢。");
+        } finally {
+            btn.disabled = false;
+            loader.style.display = 'none';
+        }
+    }
+
+    function renderTable(data) {
+        const tbody = document.getElementById('tableBody');
+        tbody.innerHTML = '';
+        data.forEach(item => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td>${item.br || ''}</td>
+                <td>${item.dg || ''}</td>
+                <td>${item.name || ''}</td>
+                <td>${item.qty || ''}</td>
+            `;
+            tbody.appendChild(tr);
+        });
+    }
+
+    function exportToExcel() {
+        if (extractedData.length === 0) return alert("目前沒有資料可以匯出。");
+        
+        // 將資料欄位中文化
+        const exportMap = extractedData.map(item => ({
+            "BR 單號": item.br,
+            "DG 料號": item.dg,
+            "產品名稱": item.name,
+            "數量": item.qty
+        }));
+
+        const worksheet = XLSX.utils.json_to_sheet(exportMap);
+        const workbook = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(workbook, worksheet, "借貨清單");
+        XLSX.writeFile(workbook, "借貨資料匯出.xlsx");
+    }
+</script>
+
+</body>
+</html>
