@@ -2,7 +2,7 @@
 <html lang="zh-TW">
 <head>
     <meta charset="UTF-8">
-    <title>AI 採購校對系統 - 終極抗塞車版</title>
+    <title>AI 採購校對系統 - 完美匯出版</title>
     <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
     <style>
         body { font-family: 'Segoe UI', system-ui, sans-serif; background: #f8fafc; padding: 20px; color: #1e293b; }
@@ -101,14 +101,13 @@
             
             if (!modelRes.ok) throw new Error(`查詢模型失敗: ${modelData.error?.message || JSON.stringify(modelData)}`);
             
-            // 找出所有可以生成文字的模型
             const availableModels = modelData.models
                 .filter(m => m.supportedGenerationMethods && m.supportedGenerationMethods.includes("generateContent"))
                 .map(m => m.name);
             
             if (availableModels.length === 0) throw new Error("您的金鑰沒有分配到任何可用的對話模型。");
 
-            // 優先嘗試 flash 模型，速度較快
+            // 優先嘗試 flash 模型
             availableModels.sort((a, b) => {
                 if (a.includes("flash") && !b.includes("flash")) return -1;
                 if (!a.includes("flash") && b.includes("flash")) return 1;
@@ -118,7 +117,7 @@
             let success = false;
             let lastError = "";
 
-            // 2. 自動切換車道 (如果塞車，就換下一個模型)
+            // 2. 自動切換車道抗塞車
             for (let targetModel of availableModels) {
                 if (success) break;
                 
@@ -142,16 +141,13 @@
 
                     const data = await response.json();
                     
-                    // 如果這個模型塞車(503)或失敗，丟出錯誤讓 catch 捕捉並進入下一個迴圈
                     if (!response.ok) throw new Error(data.error ? data.error.message : JSON.stringify(data));
 
-                    // 解析成功資料
                     const aiRaw = data.candidates[0].content.parts[0].text.replace(/```json|```/g, '').trim();
                     const results = JSON.parse(aiRaw);
 
                     finalData = results.map((item, i) => {
                         let sku = item.no.trim();
-                        // 處理補齊 -000 邏輯
                         if (sku.includes('-') && sku.split('-').length === 2 && !sku.includes('*')) {
                             sku += "-000";
                         }
@@ -162,14 +158,14 @@
                     document.getElementById('exBtn').disabled = false;
                     success = true;
                     
-                    badge.innerHTML = `✅ 成功選用模型：<b>${targetModel}</b>`;
+                    badge.innerHTML = `✅ 雷達掃描成功！系統已自動選用模型：<b>${targetModel}</b>`;
                     badge.style.background = "#dcfce7";
                     badge.style.color = "#166534";
 
                 } catch (err) {
                     console.warn(`模型 ${targetModel} 失敗:`, err.message);
                     lastError = err.message;
-                    badge.innerHTML = `⚠️ 模型 ${targetModel} 忙碌中，切換備用模型...`;
+                    badge.innerHTML = `⚠️ 模型 ${targetModel} 忙碌中，自動切換備用模型...`;
                     badge.style.background = "#fef08a";
                     badge.style.color = "#854d0e";
                 }
@@ -205,12 +201,12 @@
         area.innerHTML = html;
     }
 
-    // 💡 修正匯出 Excel，確保有第三個欄位
+    // 💡 匯出 Excel：第三欄位固定為「採購進貨成本」且為空值
     function exportExcel() {
         const ws = XLSX.utils.json_to_sheet(finalData.map(d => ({
             "商品編號": d.sku, 
             "數量": d.qty,
-            "對話原文參考": d.txt
+            "採購進貨成本": ""  // 留下空白讓你可以直接填寫
         })));
         const wb = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(wb, ws, "採購校對結果");
