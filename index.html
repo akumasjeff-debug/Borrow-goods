@@ -2,7 +2,7 @@
 <html lang="zh-TW">
 <head>
     <meta charset="UTF-8">
-    <title>AI 採購校對 - 官方 SDK 版</title>
+    <title>AI 採購校對 - 最終破關版</title>
     <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
     <script type="importmap">
       {
@@ -31,17 +31,17 @@
 <body>
 
 <div class="container">
-    <h1>🎨 採購資料 AI 智慧校對 (官方 SDK 救命版)</h1>
+    <h1>🎨 採購資料 AI 智慧校對 (破關版)</h1>
     <div id="inputArea" contenteditable="true" placeholder="在此貼入對話內容..."></div>
     <div class="btn-group">
         <button id="runBtn" class="btn-ai">1. 執行 AI 智慧辨識</button>
         <button id="exBtn" class="btn-excel" disabled>2. 匯出 Excel</button>
     </div>
-    <div id="loading">🚀 官方 SDK 正在連線中，請稍候...</div>
+    <div id="loading">🚀 AI 正在閱讀對話，請稍候...</div>
     <div id="debugLog"></div>
     <table id="resTable">
         <thead>
-            <tr><th>商品編號 (補齊後)</th><th>數量</th><th>對話原文</th></tr>
+            <tr><th>商品編號 (補齊後)</th><th>數量</th><th>對話原文參考</th></tr>
         </thead>
         <tbody id="resBody"></tbody>
     </table>
@@ -50,9 +50,7 @@
 <script type="module">
     import { GoogleGenerativeAI } from "@google/generative-ai";
 
-    // 使用您剛產生的新 Key
     const API_KEY = "AIzaSyBh4RqEvV0OVWrivEMj-g-xP5JQZVPu2qk";
-
     let finalData = [];
     const colorPalette = ["#FFD1DC", "#D1EAFF", "#D1FFD7", "#FFF4D1", "#EAD1FF"];
 
@@ -70,10 +68,11 @@
 
         try {
             const genAI = new GoogleGenerativeAI(API_KEY);
-            // 這裡不再指定 v1 或 v1beta，交給 SDK 自己處理
-            const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+            
+            // 💡 關鍵修改：換成所有新帳號都 100% 支援的基礎模型
+            const model = genAI.getGenerativeModel({ model: "gemini-pro" });
 
-            const prompt = `任務：提取對話中的商品編號(XXXXXX-XXXXXXXXX)與正確數量。理解「改為」等語法。回傳純JSON格式：[{"no":"","qty":0,"txt":""}]。內容：${text}`;
+            const prompt = `任務：提取對話中的商品編號(XXXXXX-XXXXXXXXX)與正確數量。理解「改為」等語法。回傳純JSON格式：[{"no":"","qty":0,"txt":""}]。不需其他文字。內容：${text}`;
 
             const result = await model.generateContent(prompt);
             const response = await result.response;
@@ -107,7 +106,7 @@
         let html = raw;
 
         finalData.forEach(item => {
-            tbody.innerHTML += `<tr style="background:${item.color}"><td><b>${item.sku}</b></td><td>${item.qty}</td><td>${item.txt}</td></tr>`;
+            tbody.innerHTML += `<tr style="background:${item.color}"><td><b>${item.sku}</b></td><td>${item.qty}</td><td style="font-size:12px;color:#666">${item.txt}</td></tr>`;
             if (item.txt) {
                 const reg = new RegExp(`(${item.txt.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, "g");
                 html = html.replace(reg, `<mark style="background:${item.color}">$1</mark>`);
@@ -116,7 +115,6 @@
         area.innerHTML = html;
     }
 
-    // 匯出功能
     window.exportExcel = function() {
         const ws = XLSX.utils.json_to_sheet(finalData.map(d => ({"商品編號": d.sku, "數量": d.qty})));
         const wb = XLSX.utils.book_new();
