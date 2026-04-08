@@ -2,122 +2,56 @@
 <html lang="zh-TW">
 <head>
     <meta charset="UTF-8">
-    <title>AI 採購校對 - 終極穩定版</title>
+    <title>AI 採購校對 - 診斷版</title>
     <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
     <style>
-        body { font-family: 'Segoe UI', sans-serif; background: #f1f5f9; padding: 20px; color: #1e293b; }
-        .container { max-width: 950px; margin: auto; background: white; padding: 35px; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); }
-        h1 { color: #2563eb; text-align: center; }
-        #inputArea { width: 100%; min-height: 250px; padding: 20px; border: 2px solid #cbd5e1; border-radius: 12px; font-size: 16px; line-height: 1.8; outline: none; white-space: pre-wrap; background: #ffffff; box-sizing: border-box; }
-        .btn-group { display: flex; gap: 15px; margin: 25px 0; }
-        button { flex: 1; padding: 18px; border: none; border-radius: 10px; cursor: pointer; font-weight: bold; font-size: 18px; color: white; transition: 0.2s; }
-        .btn-ai { background: #2563eb; }
-        .btn-excel { background: #10b981; }
-        table { width: 100%; border-collapse: separate; border-spacing: 0; margin-top: 20px; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; }
-        th, td { padding: 15px; text-align: left; border-bottom: 1px solid #e2e8f0; }
-        th { background: #f8fafc; font-weight: bold; }
-        mark { border-radius: 6px; padding: 2px 6px; color: #000; font-weight: bold; }
-        #status { text-align: center; color: #3b82f6; font-weight: bold; display: none; margin: 10px 0; }
+        body { font-family: sans-serif; padding: 20px; background: #f4f7f6; }
+        .box { max-width: 800px; margin: auto; background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
+        #inputArea { width: 100%; min-height: 200px; border: 1px solid #ccc; padding: 10px; margin: 10px 0; white-space: pre-wrap; }
+        button { background: #1a73e8; color: white; border: none; padding: 10px 20px; cursor: pointer; border-radius: 5px; }
+        .error-box { color: red; background: #fee; padding: 10px; display: none; margin: 10px 0; border: 1px solid red; }
     </style>
 </head>
 <body>
-
-<div class="container">
-    <h1>🎨 採購資料 AI 智慧校對 (三段備援版)</h1>
-    <div id="inputArea" contenteditable="true" placeholder="在此貼入對話內容..."></div>
-    <div class="btn-group">
-        <button id="runBtn" class="btn-ai" onclick="startAI()">1. 執行 AI 智慧辨識</button>
-        <button id="exBtn" class="btn-excel" onclick="exportExcel()" disabled>2. 匯出 Excel</button>
-    </div>
-    <div id="status">🚀 AI 正在辨識中，請稍候...</div>
-    <table id="resTable">
-        <thead><tr><th>商品編號 (補齊後)</th><th>數量</th><th>AI 抓取的原文</th></tr></thead>
-        <tbody id="resBody"></tbody>
-    </table>
+<div class="box">
+    <h2>🎨 AI 智慧校對 (最後測試)</h2>
+    <div id="inputArea" contenteditable="true" placeholder="在此貼入內容..."></div>
+    <div id="errorDisplay" class="error-box"></div>
+    <button onclick="testAI()">執行辨識</button>
+    <div id="res"></div>
 </div>
 
 <script>
-    // 💡 物理級字串清洗，確保 Key 不會被過濾
-    const keyArray = ["AIzaSyD", "ak1zCKI", "kYEZKg", "ysE2DKM", "hgoll-", "mkLuYg"];
-    const API_KEY = keyArray.join('');
+    const API_KEY = "AIzaSyDak1zCKIkYEZKgysE2DKMhgoll-mkLuYg"; 
 
-    let finalData = [];
-    const colors = ["#FFD1DC", "#D1EAFF", "#D1FFD7", "#FFF4D1", "#EAD1FF"];
-
-    async function startAI() {
+    async function testAI() {
         const text = document.getElementById('inputArea').innerText;
-        if (!text.trim()) return alert("請輸入內容");
+        const errDiv = document.getElementById('errorDisplay');
+        errDiv.style.display = "none";
 
-        const btn = document.getElementById('runBtn');
-        const status = document.getElementById('status');
-        btn.disabled = true;
-        status.style.display = 'block';
+        // 使用 v1beta 介面，這是目前對新 Key 支援度最高的路徑
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${API_KEY}`;
 
-        // 模型備援清單
-        const models = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-1.0-pro"];
-        let success = false;
+        try {
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    contents: [{ parts: [{ text: `提取商品編號(XXXXXX-XXXXXXXXX)與數量，回傳JSON陣列:[{"no":"","qty":0}]。對話：${text}` }] }]
+                })
+            });
 
-        for (let modelName of models) {
-            if (success) break;
-            try {
-                console.log(`正在嘗試模型: ${modelName}`);
-                const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${API_KEY}`;
-                
-                const response = await fetch(url, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        contents: [{ parts: [{ text: `提取商品編號(XXXXXX-XXXXXXXXX)與數量，回傳JSON陣列:[{"no":"","qty":0,"txt":""}]。對話：${text}` }] }]
-                    })
-                });
+            const data = await response.json();
+            if (!response.ok) throw new Error(JSON.stringify(data.error));
 
-                const data = await response.json();
-                if (!response.ok) throw new Error(data.error ? data.error.message : "連線錯誤");
+            alert("✅ 連線成功！AI 已回應。");
+            console.log(data);
+            document.getElementById('res').innerText = data.candidates[0].content.parts[0].text;
 
-                const aiRaw = data.candidates[0].content.parts[0].text.replace(/```json|```/g, '').trim();
-                const parsed = JSON.parse(aiRaw);
-
-                finalData = parsed.map((item, i) => {
-                    let sku = item.no.trim();
-                    if ((sku.match(/-/g) || []).length === 1) sku += "-000";
-                    return { sku, qty: item.qty, original: item.txt, bgColor: colors[i % colors.length] };
-                });
-
-                renderTable(text);
-                document.getElementById('exBtn').disabled = false;
-                success = true;
-            } catch (e) {
-                console.warn(`${modelName} 失敗:`, e.message);
-                if (modelName === models[models.length - 1]) {
-                    alert("所有模型皆無法連線。原因：" + e.message);
-                }
-            }
+        } catch (e) {
+            errDiv.style.display = "block";
+            errDiv.innerText = "失敗原因：" + e.message;
         }
-        status.style.display = 'none';
-        btn.disabled = false;
-    }
-
-    function renderTable(rawText) {
-        const body = document.getElementById('resBody');
-        const area = document.getElementById('inputArea');
-        body.innerHTML = '';
-        let highlighted = rawText;
-
-        finalData.forEach(item => {
-            body.innerHTML += `<tr style="background:${item.bgColor}"><td><b>${item.sku}</b></td><td>${item.qty}</td><td style="font-size:12px">${item.original}</td></tr>`;
-            if (item.original) {
-                const escaped = item.original.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-                highlighted = highlighted.replace(new RegExp(`(${escaped})`, "g"), `<mark style="background:${item.bgColor}">$1</mark>`);
-            }
-        });
-        area.innerHTML = highlighted;
-    }
-
-    function exportExcel() {
-        const ws = XLSX.utils.json_to_sheet(finalData.map(d => ({"商品編號": d.sku, "數量": d.qty})));
-        const wb = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(wb, ws, "Sheet1");
-        XLSX.writeFile(wb, "採購智慧校對.xlsx");
     }
 </script>
 </body>
