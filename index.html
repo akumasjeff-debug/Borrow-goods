@@ -2,73 +2,53 @@
 <html lang="zh-TW">
 <head>
     <meta charset="UTF-8">
-    <title>AI 採購資料智慧校對系統</title>
+    <title>AI 採購校對系統</title>
     <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
     <style>
-        body { font-family: 'Segoe UI', system-ui, sans-serif; background: #f1f5f9; padding: 20px; color: #1e293b; }
+        body { font-family: 'Segoe UI', system-ui, sans-serif; background: #f1f5f9; padding: 20px; }
         .container { max-width: 950px; margin: auto; background: white; padding: 35px; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.08); }
-        h1 { color: #2563eb; text-align: center; font-size: 26px; margin-bottom: 25px; }
-        
-        #inputArea { 
-            width: 100%; min-height: 250px; padding: 20px; border: 2px solid #cbd5e1; 
-            border-radius: 12px; font-size: 16px; outline: none; background: #fff; 
-            box-sizing: border-box; white-space: pre-wrap; line-height: 1.8;
-        }
-        #inputArea:focus { border-color: #3b82f6; box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.1); }
-        
+        h1 { color: #2563eb; text-align: center; margin-bottom: 25px; }
+        #inputArea { width: 100%; min-height: 250px; padding: 20px; border: 2px solid #cbd5e1; border-radius: 12px; font-size: 16px; outline: none; white-space: pre-wrap; background: #fff; box-sizing: border-box; line-height: 1.8; }
         .btn-group { display: flex; gap: 15px; margin: 25px 0; }
         button { flex: 1; padding: 18px; border: none; border-radius: 10px; cursor: pointer; font-weight: bold; font-size: 18px; color: white; transition: 0.2s; }
         .btn-ai { background: #2563eb; }
         .btn-excel { background: #10b981; }
-        button:disabled { background: #94a3b8; cursor: not-allowed; }
-
-        /* 🔴 診斷視窗 */
-        #debugLog { background: #fff1f2; border: 1px solid #fda4af; color: #be123c; padding: 15px; border-radius: 10px; font-size: 13px; display: none; margin-bottom: 20px; word-break: break-all; font-family: monospace; }
-        
+        #debugLog { background: #fff1f2; border: 1px solid #fda4af; color: #be123c; padding: 15px; border-radius: 10px; font-size: 13px; display: none; margin-bottom: 20px; word-break: break-all; }
         table { width: 100%; border-collapse: separate; border-spacing: 0; margin-top: 20px; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; }
         th, td { padding: 15px; text-align: left; border-bottom: 1px solid #e2e8f0; }
         th { background: #f8fafc; font-weight: bold; }
         mark { border-radius: 6px; padding: 2px 6px; color: #000; font-weight: bold; }
-        #loading { text-align: center; color: #2563eb; font-weight: bold; display: none; margin-bottom: 10px; }
+        #loading { text-align: center; color: #2563eb; font-weight: bold; display: none; }
     </style>
 </head>
 <body>
 
 <div class="container">
     <h1>🎨 採購資料 AI 智慧校對</h1>
-    
     <div id="inputArea" contenteditable="true" placeholder="在此貼入對話內容..."></div>
-    
     <div class="btn-group">
         <button id="runBtn" class="btn-ai" onclick="startAI()">1. 執行 AI 智慧辨識</button>
         <button id="exBtn" class="btn-excel" onclick="exportExcel()" disabled>2. 匯出 Excel</button>
     </div>
-
-    <div id="loading">🚀 AI 正在辨識語意並同步顏色，請稍候...</div>
+    <div id="loading">🚀 AI 正在辨識中...</div>
     <div id="debugLog"></div>
-
     <table id="resTable">
         <thead>
-            <tr>
-                <th>商品編號 (補齊後)</th>
-                <th>數量</th>
-                <th>對話原文參考</th>
-            </tr>
+            <tr><th>商品編號 (補齊後)</th><th>數量</th><th>對話原文</th></tr>
         </thead>
         <tbody id="resBody"></tbody>
     </table>
 </div>
 
 <script>
-    // 💡 已經填入您剛產生的新金鑰
+    // 💡 沿用您測試通過的新 Key
     const API_KEY = "AIzaSyBh4RqEvV0OVWrivEMj-g-xP5JQZVPu2qk";
 
     let finalData = [];
     const colorPalette = ["#FFD1DC", "#D1EAFF", "#D1FFD7", "#FFF4D1", "#EAD1FF"];
 
     async function startAI() {
-        const area = document.getElementById('inputArea');
-        const text = area.innerText;
+        const text = document.getElementById('inputArea').innerText;
         if (!text.trim()) return alert("請輸入內容");
 
         const btn = document.getElementById('runBtn');
@@ -79,8 +59,8 @@
         load.style.display = 'block';
         debug.style.display = 'none';
 
-        // 使用 v1beta 搭配 flash-latest 是目前連線最穩定的路徑
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${API_KEY}`;
+        // 修正模型名稱：將 gemini-1.5-flash-latest 改為 gemini-1.5-flash
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${API_KEY}`;
 
         try {
             const response = await fetch(url, {
@@ -89,55 +69,46 @@
                 body: JSON.stringify({
                     contents: [{
                         parts: [{
-                            text: `任務：從對話中提取「商品編號(XXXXXX-XXXXXXXXX)」與正確「數量」。需理解語意(如：改為、變更為、原本...現在)。
-                            輸出格式：純 JSON 陣列，不含解釋：[{"no":"編號","qty":數字,"txt":"原文片段"}]。
-                            對話內容：${text}`
+                            text: `任務：提取商品編號(XXXXXX-XXXXXXXXX)與正確數量。理解「改為」等語意。回傳JSON：[{"no":"","qty":0,"txt":""}]。對話：${text}`
                         }]
                     }]
                 })
             });
 
             const data = await response.json();
+            if (!response.ok) throw new Error(JSON.stringify(data));
 
-            if (!response.ok) {
-                debug.innerHTML = `<b>❌ API 報錯詳情：</b><br>${JSON.stringify(data)}`;
-                debug.style.display = 'block';
-                throw new Error(data.error ? data.error.message : "連線失敗");
-            }
-
-            const aiText = data.candidates[0].content.parts[0].text.replace(/```json|```/g, '').trim();
-            const results = JSON.parse(aiText);
+            const aiRaw = data.candidates[0].content.parts[0].text.replace(/```json|```/g, '').trim();
+            const results = JSON.parse(aiRaw);
 
             finalData = results.map((item, i) => {
                 let sku = item.no.trim();
-                // 自動補齊 -000
                 if (sku.includes('-') && sku.split('-').length === 2) sku += "-000";
                 return { sku, qty: item.qty, txt: item.txt, color: colorPalette[i % colorPalette.length] };
             });
 
-            render(text);
+            renderTable(text);
             document.getElementById('exBtn').disabled = false;
-
         } catch (e) {
-            console.error(e);
-            alert("辨識失敗！請檢查下方診斷資訊。");
+            debug.innerHTML = `❌ 錯誤：${e.message}`;
+            debug.style.display = 'block';
         } finally {
             load.style.display = 'none';
             btn.disabled = false;
         }
     }
 
-    function render(raw) {
-        const body = document.getElementById('resBody');
+    function renderTable(raw) {
+        const tbody = document.getElementById('resBody');
         const area = document.getElementById('inputArea');
-        body.innerHTML = "";
+        tbody.innerHTML = "";
         let html = raw;
 
         finalData.forEach(item => {
-            body.innerHTML += `<tr style="background:${item.color}"><td><b>${item.sku}</b></td><td>${item.qty}</td><td style="font-size:12px;color:#666">${item.txt}</td></tr>`;
+            tbody.innerHTML += `<tr style="background:${item.color}"><td><b>${item.sku}</b></td><td>${item.qty}</td><td>${item.txt}</td></tr>`;
             if (item.txt) {
-                const escaped = item.txt.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-                html = html.replace(new RegExp(`(${escaped})`, "g"), `<mark style="background:${item.color}">$1</mark>`);
+                const reg = new RegExp(`(${item.txt.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, "g");
+                html = html.replace(reg, `<mark style="background:${item.color}">$1</mark>`);
             }
         });
         area.innerHTML = html;
@@ -147,9 +118,8 @@
         const ws = XLSX.utils.json_to_sheet(finalData.map(d => ({"商品編號": d.sku, "數量": d.qty})));
         const wb = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(wb, ws, "Sheet1");
-        XLSX.writeFile(wb, "採購單校對匯出.xlsx");
+        XLSX.writeFile(wb, "採購智慧校對.xlsx");
     }
 </script>
-
 </body>
 </html>
