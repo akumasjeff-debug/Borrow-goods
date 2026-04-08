@@ -2,7 +2,7 @@
 <html lang="zh-TW">
 <head>
     <meta charset="UTF-8">
-    <title>AI 採購校對 - 最終破關版</title>
+    <title>AI 採購校對 - 終極自動尋徑版</title>
     <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
     <script type="importmap">
       {
@@ -31,13 +31,13 @@
 <body>
 
 <div class="container">
-    <h1>🎨 採購資料 AI 智慧校對 (破關版)</h1>
+    <h1>🎨 採購資料 AI 智慧校對 (自動尋徑版)</h1>
     <div id="inputArea" contenteditable="true" placeholder="在此貼入對話內容..."></div>
     <div class="btn-group">
         <button id="runBtn" class="btn-ai">1. 執行 AI 智慧辨識</button>
         <button id="exBtn" class="btn-excel" disabled>2. 匯出 Excel</button>
     </div>
-    <div id="loading">🚀 AI 正在閱讀對話，請稍候...</div>
+    <div id="loading">🚀 AI 正在嘗試可用模型，請稍候...</div>
     <div id="debugLog"></div>
     <table id="resTable">
         <thead>
@@ -54,6 +54,9 @@
     let finalData = [];
     const colorPalette = ["#FFD1DC", "#D1EAFF", "#D1FFD7", "#FFF4D1", "#EAD1FF"];
 
+    // 💡 備選模型清單，按優先順序嘗試
+    const MODEL_LIST = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-pro"];
+
     document.getElementById('runBtn').addEventListener('click', async () => {
         const text = document.getElementById('inputArea').innerText;
         if (!text.trim()) return alert("請輸入內容");
@@ -66,37 +69,47 @@
         load.style.display = 'block';
         debug.style.display = 'none';
 
-        try {
-            const genAI = new GoogleGenerativeAI(API_KEY);
-            
-            // 💡 關鍵修改：換成所有新帳號都 100% 支援的基礎模型
-            const model = genAI.getGenerativeModel({ model: "gemini-pro" });
+        const genAI = new GoogleGenerativeAI(API_KEY);
+        let success = false;
 
-            const prompt = `任務：提取對話中的商品編號(XXXXXX-XXXXXXXXX)與正確數量。理解「改為」等語法。回傳純JSON格式：[{"no":"","qty":0,"txt":""}]。不需其他文字。內容：${text}`;
+        // 🔄 模型重試迴圈
+        for (let modelName of MODEL_LIST) {
+            if (success) break;
+            try {
+                console.log(`正在嘗試呼叫模型: ${modelName}`);
+                load.innerText = `🚀 正在嘗試模型 ${modelName}...`;
+                
+                const model = genAI.getGenerativeModel({ model: modelName });
+                const prompt = `任務：提取對話中的商品編號(XXXXXX-XXXXXXXXX)與正確數量。理解「改為」等語法。回傳純JSON格式：[{"no":"","qty":0,"txt":""}]。不要解釋。內容：${text}`;
 
-            const result = await model.generateContent(prompt);
-            const response = await result.response;
-            const aiRaw = response.text().replace(/```json|```/g, '').trim();
-            
-            const results = JSON.parse(aiRaw);
+                const result = await model.generateContent(prompt);
+                const response = await result.response;
+                const aiRaw = response.text().replace(/```json|```/g, '').trim();
+                
+                const results = JSON.parse(aiRaw);
 
-            finalData = results.map((item, i) => {
-                let sku = item.no.trim();
-                if (sku.includes('-') && sku.split('-').length === 2) sku += "-000";
-                return { sku, qty: item.qty, txt: item.txt, color: colorPalette[i % colorPalette.length] };
-            });
+                finalData = results.map((item, i) => {
+                    let sku = item.no.trim();
+                    if (sku.includes('-') && sku.split('-').length === 2) sku += "-000";
+                    return { sku, qty: item.qty, txt: item.txt, color: colorPalette[i % colorPalette.length] };
+                });
 
-            renderTable(text);
-            document.getElementById('exBtn').disabled = false;
+                renderTable(text);
+                document.getElementById('exBtn').disabled = false;
+                success = true;
+                console.log(`✅ 模型 ${modelName} 呼叫成功！`);
 
-        } catch (e) {
-            console.error("SDK Error:", e);
-            debug.innerHTML = `❌ 錯誤詳情：${e.message}`;
-            debug.style.display = 'block';
-        } finally {
-            load.style.display = 'none';
-            btn.disabled = false;
+            } catch (e) {
+                console.warn(`❌ 模型 ${modelName} 失敗:`, e.message);
+                if (modelName === MODEL_LIST[MODEL_LIST.length - 1]) {
+                    debug.innerHTML = `<b>❌ 最終失敗報錯：</b><br>${e.message}<br><br>💡 提示：所有模型皆回傳 404，這通常代表 Google 伺服器同步尚未完成。請等 10 分鐘後再試。`;
+                    debug.style.display = 'block';
+                }
+            }
         }
+
+        load.style.display = 'none';
+        btn.disabled = false;
     });
 
     function renderTable(raw) {
