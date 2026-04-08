@@ -2,183 +2,139 @@
 <html lang="zh-TW">
 <head>
     <meta charset="UTF-8">
-    <title>AI 採購校對 - 終極架構重組版</title>
+    <title>AI 採購資料智慧校對</title>
     <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
     <style>
-        body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; background: #f1f5f9; padding: 20px; color: #1e293b; line-height: 1.5; }
-        .container { max-width: 900px; margin: auto; background: white; padding: 30px; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.08); }
+        body { font-family: 'Segoe UI', system-ui, sans-serif; background: #f1f5f9; padding: 20px; color: #1e293b; }
+        .container { max-width: 950px; margin: auto; background: white; padding: 35px; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.08); }
         h1 { color: #2563eb; text-align: center; margin-bottom: 25px; }
         #inputArea { 
             width: 100%; min-height: 250px; padding: 20px; border: 2px solid #cbd5e1; 
             border-radius: 12px; font-size: 16px; outline: none; background: #fff; 
-            box-sizing: border-box; white-space: pre-wrap; transition: 0.3s;
+            box-sizing: border-box; white-space: pre-wrap; line-height: 1.8;
         }
         #inputArea:focus { border-color: #3b82f6; box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.1); }
-        .controls { display: flex; gap: 15px; margin: 25px 0; }
-        button { flex: 1; padding: 16px; border: none; border-radius: 10px; cursor: pointer; font-weight: bold; font-size: 18px; color: white; transition: 0.2s; }
+        .btn-group { display: flex; gap: 15px; margin: 25px 0; }
+        button { flex: 1; padding: 18px; border: none; border-radius: 10px; cursor: pointer; font-weight: bold; font-size: 18px; color: white; transition: 0.2s; }
         .btn-ai { background: #2563eb; }
         .btn-excel { background: #10b981; }
         button:disabled { background: #94a3b8; cursor: not-allowed; }
-        table { width: 100%; border-collapse: collapse; margin-top: 20px; border-radius: 12px; overflow: hidden; border: 1px solid #e2e8f0; }
+        table { width: 100%; border-collapse: separate; border-spacing: 0; margin-top: 20px; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; }
         th, td { padding: 15px; text-align: left; border-bottom: 1px solid #e2e8f0; }
-        th { background: #f8fafc; color: #475569; }
-        mark { border-radius: 4px; padding: 2px 4px; font-weight: bold; }
-        #loading { text-align: center; color: #3b82f6; font-weight: bold; display: none; margin-bottom: 10px; }
-        .error-log { color: #dc2626; background: #fef2f2; padding: 10px; border-radius: 8px; font-size: 12px; display: none; margin-top: 10px; border: 1px solid #fee2e2; }
+        th { background: #f8fafc; font-weight: bold; }
+        mark { border-radius: 6px; padding: 2px 6px; color: #000; font-weight: bold; }
+        #loading { text-align: center; color: #3b82f6; font-weight: bold; display: none; margin: 10px 0; }
     </style>
 </head>
 <body>
 
 <div class="container">
     <h1>🎨 採購資料 AI 智慧校對</h1>
-    
     <div id="inputArea" contenteditable="true" placeholder="在此貼入對話內容..."></div>
     
-    <div class="controls">
-        <button id="aiBtn" class="btn-ai" onclick="executeAI()">執行 AI 智慧辨識</button>
-        <button id="xlsBtn" class="btn-excel" onclick="exportExcel()" disabled>匯出 Excel</button>
+    <div class="btn-group">
+        <button id="runBtn" class="btn-ai" onclick="runAI()">1. 執行 AI 智慧辨識</button>
+        <button id="xlsBtn" class="btn-excel" onclick="exportExcel()" disabled>2. 匯出 Excel</button>
     </div>
 
-    <div id="loading">🚀 AI 正在分析語意，請稍候...</div>
-    <div id="errorBox" class="error-log"></div>
+    <div id="loading">🚀 AI 正在辨識語意並補齊編號，請稍候...</div>
 
-    <table id="resultTable">
+    <table id="resTable">
         <thead>
             <tr>
-                <th width="40%">商品編號 (補齊後)</th>
-                <th width="20%">數量</th>
-                <th width="40%">辨識來源</th>
+                <th>商品編號 (補齊後)</th>
+                <th>數量</th>
+                <th>對話原文參考</th>
             </tr>
         </thead>
-        <tbody id="resultBody"></tbody>
+        <tbody id="resBody"></tbody>
     </table>
 </div>
 
 <script>
-    /**
-     * 【架構重組說明】
-     * 1. 使用原生 Fetch 並強制加上 timestamp 防止快取。
-     * 2. 移除所有第三方 SDK，回歸最純粹的 HTTP POST。
-     * 3. 強化 Prompt 的 JSON 結構要求。
-     */
-    const CONFIG = {
-        KEY: "AIzaSyDak1zCKIkYEZKgysE2DKMhgoll-mkLuYg",
-        MODEL: "gemini-1.5-flash"
-    };
+    // 💡 您的 API Key 已經確認有效，不需改動
+    const API_KEY = "AIzaSyDak1zCKIkYEZKgysE2DKMhgoll-mkLuYg";
 
-    let extractedData = [];
-    const colors = ["#FFD1DC", "#D1EAFF", "#D1FFD7", "#FFF4D1", "#EAD1FF", "#FFD1B3"];
+    let finalData = [];
+    const colorPalette = ["#FFD1DC", "#D1EAFF", "#D1FFD7", "#FFF4D1", "#EAD1FF"];
 
-    async function executeAI() {
-        const inputDiv = document.getElementById('inputArea');
-        const text = inputDiv.innerText.trim();
-        if (!text) return alert("請輸入內容");
+    async function runAI() {
+        const text = document.getElementById('inputArea').innerText;
+        if (!text.trim()) return alert("請輸入內容");
 
-        const aiBtn = document.getElementById('aiBtn');
+        const btn = document.getElementById('runBtn');
         const load = document.getElementById('loading');
-        const errBox = document.getElementById('errorBox');
-        
-        // 重置狀態
-        aiBtn.disabled = true;
+        btn.disabled = true;
         load.style.display = 'block';
-        errBox.style.display = 'none';
 
-        // 強制加上隨機參數，繞過 GitHub Pages 或瀏覽器可能的快取
-        const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${CONFIG.MODEL}:generateContent?key=${CONFIG.KEY}&_cb=${new Date().getTime()}`;
+        // 核心修正：移除無效參數，回歸標準連線
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${API_KEY}`;
 
         try {
-            const response = await fetch(endpoint, {
+            const response = await fetch(url, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     contents: [{
                         parts: [{
-                            text: `任務：你是採購助手。請從對話中提取「商品編號(如XXXXXX-XXXXXXXXX)」與「數量」。
-                            語意注意：若對話提到「改為」、「變更」、「原本...現在...」，請提取最終正確的數量。
-                            輸出要求：僅回傳純 JSON 陣列，不包含解釋文字。格式：[{"no":"編號","qty":數字,"src":"原文片段"}]
-                            
-                            待處理內容：
-                            ${text}`
+                            text: `任務：提取對話中的商品編號(格式XXXXXX-XXXXXXXXX)與正確數量。
+                            判斷規則：請理解「改為」、「原本要...現在變...」等語法。
+                            輸出格式：請嚴格回傳純 JSON 陣列，不包含解釋：[{"no":"編號","qty":數字,"txt":"原始文字"}]
+                            對話：${text}`
                         }]
                     }]
                 })
             });
 
-            const data = await response.json();
+            const result = await response.json();
 
             if (!response.ok) {
-                throw new Error(data.error ? `${data.error.status}: ${data.error.message}` : "未知 API 錯誤");
+                throw new Error(result.error ? result.error.message : "連線失敗");
             }
 
-            // 解析回傳內容
-            let aiMsg = data.candidates[0].content.parts[0].text;
-            const cleanJson = aiMsg.replace(/```json|```/g, '').trim();
-            const results = JSON.parse(cleanJson);
+            const aiText = result.candidates[0].content.parts[0].text.replace(/```json|```/g, '').trim();
+            const parsed = JSON.parse(aiText);
 
-            // 數據清洗與補齊
-            extractedData = results.map((item, index) => {
+            finalData = parsed.map((item, i) => {
                 let sku = item.no.trim();
-                // 補齊 -000 邏輯
+                // 自動補齊 -000
                 if (sku.includes('-') && sku.split('-').length === 2) sku += "-000";
-                
-                return {
-                    sku,
-                    qty: item.qty,
-                    src: item.src,
-                    color: colors[index % colors.length]
-                };
+                return { sku, qty: item.qty, txt: item.txt, color: colorPalette[i % colorPalette.length] };
             });
 
             render(text);
             document.getElementById('xlsBtn').disabled = false;
-
-        } catch (error) {
-            console.error(error);
-            errBox.innerText = `辨識失敗詳情：${error.message}`;
-            errBox.style.display = 'block';
-            alert("辨識發生錯誤，請檢查下方紅框訊息。");
+        } catch (e) {
+            console.error(e);
+            alert("辨識發生問題：" + e.message);
         } finally {
-            aiBtn.disabled = false;
             load.style.display = 'none';
+            btn.disabled = false;
         }
     }
 
-    function render(originalText) {
-        const tbody = document.getElementById('resultBody');
-        const inputDiv = document.getElementById('inputArea');
-        tbody.innerHTML = '';
-        let highlightedHtml = originalText;
+    function render(raw) {
+        const body = document.getElementById('resBody');
+        const area = document.getElementById('inputArea');
+        body.innerHTML = "";
+        let newHtml = raw;
 
-        extractedData.forEach(item => {
-            // 填充表格
-            const row = `<tr style="background: ${item.color}">
-                <td><strong>${item.sku}</strong></td>
-                <td>${item.qty}</td>
-                <td style="font-size: 12px; color: #64748b;">${item.src}</td>
-            </tr>`;
-            tbody.innerHTML += row;
-
-            // 內容高亮
-            if (item.src) {
-                const escaped = item.src.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-                const reg = new RegExp(`(${escaped})`, "g");
-                highlightedHtml = highlightedHtml.replace(reg, `<mark style="background: ${item.color}">$1</mark>`);
+        finalData.forEach(item => {
+            body.innerHTML += `<tr style="background:${item.color}"><td><b>${item.sku}</b></td><td>${item.qty}</td><td style="font-size:12px;color:#666">${item.txt}</td></tr>`;
+            if (item.txt) {
+                const escaped = item.txt.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                newHtml = newHtml.replace(new RegExp(`(${escaped})`, "g"), `<mark style="background:${item.color}">$1</mark>`);
             }
         });
-
-        inputDiv.innerHTML = highlightedHtml;
+        area.innerHTML = newHtml;
     }
 
     function exportExcel() {
-        const ws = XLSX.utils.json_to_sheet(extractedData.map(d => ({
-            "商品編號": d.sku,
-            "數量": d.qty
-        })));
+        const ws = XLSX.utils.json_to_sheet(finalData.map(d => ({"商品編號": d.sku, "數量": d.qty})));
         const wb = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(wb, ws, "採購校對結果");
-        XLSX.writeFile(wb, `採購校對_${new Date().toISOString().slice(0,10)}.xlsx`);
+        XLSX.utils.book_append_sheet(wb, ws, "Sheet1");
+        XLSX.writeFile(wb, "採購智慧校對.xlsx");
     }
 </script>
-
 </body>
 </html>
