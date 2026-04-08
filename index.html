@@ -2,7 +2,7 @@
 <html lang="zh-TW">
 <head>
     <meta charset="UTF-8">
-    <title>AI 採購校對系統 - 雷達掃描版</title>
+    <title>AI 採購校對系統 - 終極抗塞車版</title>
     <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
     <style>
         body { font-family: 'Segoe UI', system-ui, sans-serif; background: #f8fafc; padding: 20px; color: #1e293b; }
@@ -92,78 +92,95 @@
         badge.style.display = 'none';
         
         try {
-            // ==========================================
-            // 步驟一：雷達掃描！調閱可用的模型清單
-            // ==========================================
+            // 1. 雷達掃描可用模型
             load.style.display = 'block';
-            load.innerText = "🔍 正在向 Google 後台查詢您的專屬模型清單...";
+            load.innerText = "🔍 正在向 Google 查詢可用模型清單...";
             
             const modelRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
             const modelData = await modelRes.json();
             
-            if (!modelRes.ok) {
-                throw new Error(`查詢模型失敗: ${modelData.error?.message || JSON.stringify(modelData)}`);
-            }
+            if (!modelRes.ok) throw new Error(`查詢模型失敗: ${modelData.error?.message || JSON.stringify(modelData)}`);
             
-            // 篩選出可以「生成文字 (generateContent)」的模型
-            const availableModels = modelData.models.filter(m => m.supportedGenerationMethods && m.supportedGenerationMethods.includes("generateContent"));
+            // 找出所有可以生成文字的模型
+            const availableModels = modelData.models
+                .filter(m => m.supportedGenerationMethods && m.supportedGenerationMethods.includes("generateContent"))
+                .map(m => m.name);
             
-            if (availableModels.length === 0) {
-                throw new Error("您的金鑰有效，但 Google 沒有分配任何『文字對話模型』給這把鑰匙。請檢查 Google Cloud 專案權限！");
-            }
+            if (availableModels.length === 0) throw new Error("您的金鑰沒有分配到任何可用的對話模型。");
 
-            // 系統自動選擇第一個可用的模型 (例如 'models/gemini-1.5-flash')
-            let targetModel = availableModels[0].name;
-            
-            // 如果清單裡有我們最想要的 1.5-flash，就優先用它
-            const bestModel = availableModels.find(m => m.name.includes("gemini-1.5-flash"));
-            if (bestModel) targetModel = bestModel.name;
-
-            badge.innerHTML = `✅ 雷達掃描成功！系統已自動鎖定並選用模型：<b>${targetModel}</b>`;
-            badge.style.display = 'block';
-            load.innerText = `🚀 正在使用 ${targetModel} 執行 AI 辨識...`;
-
-            // ==========================================
-            // 步驟二：使用找到的正確模型發送辨識請求
-            // ==========================================
-            // 注意：targetModel 本身就包含了 'models/' 前綴，所以網址直接接上去即可
-            const url = `https://generativelanguage.googleapis.com/v1beta/${targetModel}:generateContent?key=${apiKey}`;
-            
-            const response = await fetch(url, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    contents: [{
-                        parts: [{
-                            text: `任務：提取對話中的商品編號(XXXXXX-XXXXXXXXX)與正確數量。理解「改為」等語意。回傳純JSON陣列：[{"no":"","qty":0,"txt":""}]。對話：${text}`
-                        }]
-                    }]
-                })
+            // 優先嘗試 flash 模型，速度較快
+            availableModels.sort((a, b) => {
+                if (a.includes("flash") && !b.includes("flash")) return -1;
+                if (!a.includes("flash") && b.includes("flash")) return 1;
+                return 0;
             });
 
-            const data = await response.json();
-            if (!response.ok) throw new Error(data.error ? data.error.message : JSON.stringify(data));
+            let success = false;
+            let lastError = "";
 
-            // 解析資料
-            const aiRaw = data.candidates[0].content.parts[0].text.replace(/```json|```/g, '').trim();
-            let results = [];
-            try {
-                results = JSON.parse(aiRaw);
-            } catch (err) {
-                throw new Error("AI 回傳的格式異常，無法解析為表格：" + aiRaw);
+            // 2. 自動切換車道 (如果塞車，就換下一個模型)
+            for (let targetModel of availableModels) {
+                if (success) break;
+                
+                try {
+                    badge.innerHTML = `⏳ 正在嘗試使用模型：<b>${targetModel}</b>...`;
+                    badge.style.display = 'block';
+                    load.innerText = `🚀 正在發送資料給 ${targetModel}...`;
+                    
+                    const url = `https://generativelanguage.googleapis.com/v1beta/${targetModel}:generateContent?key=${apiKey}`;
+                    const response = await fetch(url, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            contents: [{
+                                parts: [{
+                                    text: `任務：提取對話中的商品編號(包含*與x後面的數量)。理解「改為」等語意。如果沒有提到數量，預設為1。回傳純JSON陣列：[{"no":"商品編號","qty":數量,"txt":"原文參考"}]。不要有任何說明文字。對話內容：${text}`
+                                }]
+                            }]
+                        })
+                    });
+
+                    const data = await response.json();
+                    
+                    // 如果這個模型塞車(503)或失敗，丟出錯誤讓 catch 捕捉並進入下一個迴圈
+                    if (!response.ok) throw new Error(data.error ? data.error.message : JSON.stringify(data));
+
+                    // 解析成功資料
+                    const aiRaw = data.candidates[0].content.parts[0].text.replace(/```json|```/g, '').trim();
+                    const results = JSON.parse(aiRaw);
+
+                    finalData = results.map((item, i) => {
+                        let sku = item.no.trim();
+                        // 處理補齊 -000 邏輯
+                        if (sku.includes('-') && sku.split('-').length === 2 && !sku.includes('*')) {
+                            sku += "-000";
+                        }
+                        return { sku, qty: item.qty || 1, txt: item.txt || "", color: colorPalette[i % colorPalette.length] };
+                    });
+
+                    renderTable(text);
+                    document.getElementById('exBtn').disabled = false;
+                    success = true;
+                    
+                    badge.innerHTML = `✅ 成功選用模型：<b>${targetModel}</b>`;
+                    badge.style.background = "#dcfce7";
+                    badge.style.color = "#166534";
+
+                } catch (err) {
+                    console.warn(`模型 ${targetModel} 失敗:`, err.message);
+                    lastError = err.message;
+                    badge.innerHTML = `⚠️ 模型 ${targetModel} 忙碌中，切換備用模型...`;
+                    badge.style.background = "#fef08a";
+                    badge.style.color = "#854d0e";
+                }
             }
 
-            finalData = results.map((item, i) => {
-                let sku = item.no.trim();
-                if (sku.includes('-') && sku.split('-').length === 2) sku += "-000";
-                return { sku, qty: item.qty, txt: item.txt, color: colorPalette[i % colorPalette.length] };
-            });
-
-            renderTable(text);
-            document.getElementById('exBtn').disabled = false;
+            if (!success) {
+                throw new Error(lastError);
+            }
 
         } catch (e) {
-            debug.innerHTML = `<b>❌ 最終報錯詳情：</b><br>${e.message}`;
+            debug.innerHTML = `<b>❌ 最終報錯詳情：</b><br>${e.message}<br><br>💡 如果顯示 high demand (需求過高)，請等待幾秒鐘後再次點擊按鈕。`;
             debug.style.display = 'block';
             console.error(e);
         } finally {
@@ -188,11 +205,16 @@
         area.innerHTML = html;
     }
 
+    // 💡 修正匯出 Excel，確保有第三個欄位
     function exportExcel() {
-        const ws = XLSX.utils.json_to_sheet(finalData.map(d => ({"商品編號": d.sku, "數量": d.qty})));
+        const ws = XLSX.utils.json_to_sheet(finalData.map(d => ({
+            "商品編號": d.sku, 
+            "數量": d.qty,
+            "對話原文參考": d.txt
+        })));
         const wb = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(wb, ws, "Sheet1");
-        XLSX.writeFile(wb, "採購智慧校對.xlsx");
+        XLSX.utils.book_append_sheet(wb, ws, "採購校對結果");
+        XLSX.writeFile(wb, "採購單_AI校對匯出.xlsx");
     }
 </script>
 </body>
