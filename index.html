@@ -2,57 +2,183 @@
 <html lang="zh-TW">
 <head>
     <meta charset="UTF-8">
-    <title>AI 採購校對 - 診斷版</title>
+    <title>AI 採購校對 - 終極架構重組版</title>
     <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
     <style>
-        body { font-family: sans-serif; padding: 20px; background: #f4f7f6; }
-        .box { max-width: 800px; margin: auto; background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
-        #inputArea { width: 100%; min-height: 200px; border: 1px solid #ccc; padding: 10px; margin: 10px 0; white-space: pre-wrap; }
-        button { background: #1a73e8; color: white; border: none; padding: 10px 20px; cursor: pointer; border-radius: 5px; }
-        .error-box { color: red; background: #fee; padding: 10px; display: none; margin: 10px 0; border: 1px solid red; }
+        body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; background: #f1f5f9; padding: 20px; color: #1e293b; line-height: 1.5; }
+        .container { max-width: 900px; margin: auto; background: white; padding: 30px; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.08); }
+        h1 { color: #2563eb; text-align: center; margin-bottom: 25px; }
+        #inputArea { 
+            width: 100%; min-height: 250px; padding: 20px; border: 2px solid #cbd5e1; 
+            border-radius: 12px; font-size: 16px; outline: none; background: #fff; 
+            box-sizing: border-box; white-space: pre-wrap; transition: 0.3s;
+        }
+        #inputArea:focus { border-color: #3b82f6; box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.1); }
+        .controls { display: flex; gap: 15px; margin: 25px 0; }
+        button { flex: 1; padding: 16px; border: none; border-radius: 10px; cursor: pointer; font-weight: bold; font-size: 18px; color: white; transition: 0.2s; }
+        .btn-ai { background: #2563eb; }
+        .btn-excel { background: #10b981; }
+        button:disabled { background: #94a3b8; cursor: not-allowed; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; border-radius: 12px; overflow: hidden; border: 1px solid #e2e8f0; }
+        th, td { padding: 15px; text-align: left; border-bottom: 1px solid #e2e8f0; }
+        th { background: #f8fafc; color: #475569; }
+        mark { border-radius: 4px; padding: 2px 4px; font-weight: bold; }
+        #loading { text-align: center; color: #3b82f6; font-weight: bold; display: none; margin-bottom: 10px; }
+        .error-log { color: #dc2626; background: #fef2f2; padding: 10px; border-radius: 8px; font-size: 12px; display: none; margin-top: 10px; border: 1px solid #fee2e2; }
     </style>
 </head>
 <body>
-<div class="box">
-    <h2>🎨 AI 智慧校對 (最後測試)</h2>
-    <div id="inputArea" contenteditable="true" placeholder="在此貼入內容..."></div>
-    <div id="errorDisplay" class="error-box"></div>
-    <button onclick="testAI()">執行辨識</button>
-    <div id="res"></div>
+
+<div class="container">
+    <h1>🎨 採購資料 AI 智慧校對</h1>
+    
+    <div id="inputArea" contenteditable="true" placeholder="在此貼入對話內容..."></div>
+    
+    <div class="controls">
+        <button id="aiBtn" class="btn-ai" onclick="executeAI()">執行 AI 智慧辨識</button>
+        <button id="xlsBtn" class="btn-excel" onclick="exportExcel()" disabled>匯出 Excel</button>
+    </div>
+
+    <div id="loading">🚀 AI 正在分析語意，請稍候...</div>
+    <div id="errorBox" class="error-log"></div>
+
+    <table id="resultTable">
+        <thead>
+            <tr>
+                <th width="40%">商品編號 (補齊後)</th>
+                <th width="20%">數量</th>
+                <th width="40%">辨識來源</th>
+            </tr>
+        </thead>
+        <tbody id="resultBody"></tbody>
+    </table>
 </div>
 
 <script>
-    const API_KEY = "AIzaSyDak1zCKIkYEZKgysE2DKMhgoll-mkLuYg"; 
+    /**
+     * 【架構重組說明】
+     * 1. 使用原生 Fetch 並強制加上 timestamp 防止快取。
+     * 2. 移除所有第三方 SDK，回歸最純粹的 HTTP POST。
+     * 3. 強化 Prompt 的 JSON 結構要求。
+     */
+    const CONFIG = {
+        KEY: "AIzaSyDak1zCKIkYEZKgysE2DKMhgoll-mkLuYg",
+        MODEL: "gemini-1.5-flash"
+    };
 
-    async function testAI() {
-        const text = document.getElementById('inputArea').innerText;
-        const errDiv = document.getElementById('errorDisplay');
-        errDiv.style.display = "none";
+    let extractedData = [];
+    const colors = ["#FFD1DC", "#D1EAFF", "#D1FFD7", "#FFF4D1", "#EAD1FF", "#FFD1B3"];
 
-        // 使用 v1beta 介面，這是目前對新 Key 支援度最高的路徑
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${API_KEY}`;
+    async function executeAI() {
+        const inputDiv = document.getElementById('inputArea');
+        const text = inputDiv.innerText.trim();
+        if (!text) return alert("請輸入內容");
+
+        const aiBtn = document.getElementById('aiBtn');
+        const load = document.getElementById('loading');
+        const errBox = document.getElementById('errorBox');
+        
+        // 重置狀態
+        aiBtn.disabled = true;
+        load.style.display = 'block';
+        errBox.style.display = 'none';
+
+        // 強制加上隨機參數，繞過 GitHub Pages 或瀏覽器可能的快取
+        const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${CONFIG.MODEL}:generateContent?key=${CONFIG.KEY}&_cb=${new Date().getTime()}`;
 
         try {
-            const response = await fetch(url, {
+            const response = await fetch(endpoint, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    contents: [{ parts: [{ text: `提取商品編號(XXXXXX-XXXXXXXXX)與數量，回傳JSON陣列:[{"no":"","qty":0}]。對話：${text}` }] }]
+                    contents: [{
+                        parts: [{
+                            text: `任務：你是採購助手。請從對話中提取「商品編號(如XXXXXX-XXXXXXXXX)」與「數量」。
+                            語意注意：若對話提到「改為」、「變更」、「原本...現在...」，請提取最終正確的數量。
+                            輸出要求：僅回傳純 JSON 陣列，不包含解釋文字。格式：[{"no":"編號","qty":數字,"src":"原文片段"}]
+                            
+                            待處理內容：
+                            ${text}`
+                        }]
+                    }]
                 })
             });
 
             const data = await response.json();
-            if (!response.ok) throw new Error(JSON.stringify(data.error));
 
-            alert("✅ 連線成功！AI 已回應。");
-            console.log(data);
-            document.getElementById('res').innerText = data.candidates[0].content.parts[0].text;
+            if (!response.ok) {
+                throw new Error(data.error ? `${data.error.status}: ${data.error.message}` : "未知 API 錯誤");
+            }
 
-        } catch (e) {
-            errDiv.style.display = "block";
-            errDiv.innerText = "失敗原因：" + e.message;
+            // 解析回傳內容
+            let aiMsg = data.candidates[0].content.parts[0].text;
+            const cleanJson = aiMsg.replace(/```json|```/g, '').trim();
+            const results = JSON.parse(cleanJson);
+
+            // 數據清洗與補齊
+            extractedData = results.map((item, index) => {
+                let sku = item.no.trim();
+                // 補齊 -000 邏輯
+                if (sku.includes('-') && sku.split('-').length === 2) sku += "-000";
+                
+                return {
+                    sku,
+                    qty: item.qty,
+                    src: item.src,
+                    color: colors[index % colors.length]
+                };
+            });
+
+            render(text);
+            document.getElementById('xlsBtn').disabled = false;
+
+        } catch (error) {
+            console.error(error);
+            errBox.innerText = `辨識失敗詳情：${error.message}`;
+            errBox.style.display = 'block';
+            alert("辨識發生錯誤，請檢查下方紅框訊息。");
+        } finally {
+            aiBtn.disabled = false;
+            load.style.display = 'none';
         }
     }
+
+    function render(originalText) {
+        const tbody = document.getElementById('resultBody');
+        const inputDiv = document.getElementById('inputArea');
+        tbody.innerHTML = '';
+        let highlightedHtml = originalText;
+
+        extractedData.forEach(item => {
+            // 填充表格
+            const row = `<tr style="background: ${item.color}">
+                <td><strong>${item.sku}</strong></td>
+                <td>${item.qty}</td>
+                <td style="font-size: 12px; color: #64748b;">${item.src}</td>
+            </tr>`;
+            tbody.innerHTML += row;
+
+            // 內容高亮
+            if (item.src) {
+                const escaped = item.src.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                const reg = new RegExp(`(${escaped})`, "g");
+                highlightedHtml = highlightedHtml.replace(reg, `<mark style="background: ${item.color}">$1</mark>`);
+            }
+        });
+
+        inputDiv.innerHTML = highlightedHtml;
+    }
+
+    function exportExcel() {
+        const ws = XLSX.utils.json_to_sheet(extractedData.map(d => ({
+            "商品編號": d.sku,
+            "數量": d.qty
+        })));
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "採購校對結果");
+        XLSX.writeFile(wb, `採購校對_${new Date().toISOString().slice(0,10)}.xlsx`);
+    }
 </script>
+
 </body>
 </html>
