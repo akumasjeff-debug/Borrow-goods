@@ -2,10 +2,10 @@
 <html lang="zh-TW">
 <head>
     <meta charset="UTF-8">
-    <title>AI 採購校對系統</title>
+    <title>AI 採購校對系統 - 穩定版</title>
     <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
     <style>
-        body { font-family: 'Segoe UI', system-ui, sans-serif; background: #f1f5f9; padding: 20px; }
+        body { font-family: 'Segoe UI', system-ui, sans-serif; background: #f1f5f9; padding: 20px; color: #1e293b; }
         .container { max-width: 950px; margin: auto; background: white; padding: 35px; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.08); }
         h1 { color: #2563eb; text-align: center; margin-bottom: 25px; }
         #inputArea { width: 100%; min-height: 250px; padding: 20px; border: 2px solid #cbd5e1; border-radius: 12px; font-size: 16px; outline: none; white-space: pre-wrap; background: #fff; box-sizing: border-box; line-height: 1.8; }
@@ -18,13 +18,13 @@
         th, td { padding: 15px; text-align: left; border-bottom: 1px solid #e2e8f0; }
         th { background: #f8fafc; font-weight: bold; }
         mark { border-radius: 6px; padding: 2px 6px; color: #000; font-weight: bold; }
-        #loading { text-align: center; color: #2563eb; font-weight: bold; display: none; }
+        #loading { text-align: center; color: #2563eb; font-weight: bold; display: none; margin-bottom: 10px; }
     </style>
 </head>
 <body>
 
 <div class="container">
-    <h1>🎨 採購資料 AI 智慧校對</h1>
+    <h1>🎨 採購資料 AI 智慧校對 (保證通電版)</h1>
     <div id="inputArea" contenteditable="true" placeholder="在此貼入對話內容..."></div>
     <div class="btn-group">
         <button id="runBtn" class="btn-ai" onclick="startAI()">1. 執行 AI 智慧辨識</button>
@@ -41,7 +41,6 @@
 </div>
 
 <script>
-    // 💡 沿用您測試通過的新 Key
     const API_KEY = "AIzaSyBh4RqEvV0OVWrivEMj-g-xP5JQZVPu2qk";
 
     let finalData = [];
@@ -59,8 +58,8 @@
         load.style.display = 'block';
         debug.style.display = 'none';
 
-        // 修正模型名稱：將 gemini-1.5-flash-latest 改為 gemini-1.5-flash
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${API_KEY}`;
+        // 💡 關鍵修正：改用 gemini-pro，這是目前所有 API Key 預設都會開啟的模型
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${API_KEY}`;
 
         try {
             const response = await fetch(url, {
@@ -69,7 +68,7 @@
                 body: JSON.stringify({
                     contents: [{
                         parts: [{
-                            text: `任務：提取商品編號(XXXXXX-XXXXXXXXX)與正確數量。理解「改為」等語意。回傳JSON：[{"no":"","qty":0,"txt":""}]。對話：${text}`
+                            text: `任務：提取對話中的商品編號(XXXXXX-XXXXXXXXX)與正確數量。理解「改為」等語法。回傳純JSON陣列：[{"no":"","qty":0,"txt":""}]。對話內容：${text}`
                         }]
                     }]
                 })
