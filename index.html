@@ -2,7 +2,7 @@
 <html lang="zh-TW">
 <head>
     <meta charset="UTF-8">
-    <title>AI 採購校對系統 - 穩定版</title>
+    <title>AI 採購校對系統 - 最終版</title>
     <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
     <style>
         body { font-family: 'Segoe UI', system-ui, sans-serif; background: #f1f5f9; padding: 20px; color: #1e293b; }
@@ -24,7 +24,7 @@
 <body>
 
 <div class="container">
-    <h1>🎨 採購資料 AI 智慧校對 (保證通電版)</h1>
+    <h1>🎨 採購資料 AI 智慧校對 (最終撞門版)</h1>
     <div id="inputArea" contenteditable="true" placeholder="在此貼入對話內容..."></div>
     <div class="btn-group">
         <button id="runBtn" class="btn-ai" onclick="startAI()">1. 執行 AI 智慧辨識</button>
@@ -58,8 +58,8 @@
         load.style.display = 'block';
         debug.style.display = 'none';
 
-        // 💡 關鍵修正：改用 gemini-pro，這是目前所有 API Key 預設都會開啟的模型
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${API_KEY}`;
+        // 💡 終極修正：改用 v1 穩定版介面，並使用正確的模型路徑
+        const url = `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${API_KEY}`;
 
         try {
             const response = await fetch(url, {
@@ -75,26 +75,46 @@
             });
 
             const data = await response.json();
-            if (!response.ok) throw new Error(JSON.stringify(data));
+            
+            // 如果 v1 也不行，嘗試 v1beta 的完整路徑
+            if (!response.ok) {
+                console.log("嘗試備援路徑...");
+                const backupUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${API_KEY}`;
+                const backupRes = await fetch(backupUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        contents: [{ parts: [{ text: `提取商品編號與數量JSON:[{"no":"","qty":0,"txt":""}]。內容：${text}` }] }]
+                    })
+                });
+                const backupData = await backupRes.json();
+                if (!backupRes.ok) throw new Error(JSON.stringify(backupData));
+                processData(backupData, text);
+            } else {
+                processData(data, text);
+            }
 
-            const aiRaw = data.candidates[0].content.parts[0].text.replace(/```json|```/g, '').trim();
-            const results = JSON.parse(aiRaw);
-
-            finalData = results.map((item, i) => {
-                let sku = item.no.trim();
-                if (sku.includes('-') && sku.split('-').length === 2) sku += "-000";
-                return { sku, qty: item.qty, txt: item.txt, color: colorPalette[i % colorPalette.length] };
-            });
-
-            renderTable(text);
-            document.getElementById('exBtn').disabled = false;
         } catch (e) {
-            debug.innerHTML = `❌ 錯誤：${e.message}`;
+            debug.innerHTML = `❌ 最終報錯：${e.message}`;
             debug.style.display = 'block';
         } finally {
             load.style.display = 'none';
             btn.disabled = false;
         }
+    }
+
+    function processData(data, text) {
+        const aiRaw = data.candidates[0].content.parts[0].text.replace(/```json|```/g, '').trim();
+        const results = JSON.parse(aiRaw);
+
+        finalData = results.map((item, i) => {
+            let sku = item.no.trim();
+            if (sku.includes('-') && sku.split('-').length === 2) sku += "-000";
+            return { sku, qty: item.qty, txt: item.txt, color: colorPalette[i % colorPalette.length] };
+        });
+
+        renderTable(text);
+        document.getElementById('exBtn').disabled = false;
     }
 
     function renderTable(raw) {
